@@ -1,8 +1,8 @@
-# 🏓 Air Pong - Hand Control
+# Air Pong - Hand Control
 
 A hand-controlled Pong game that works both as a Python desktop application and as a web application on GitHub Pages!
 
-## 🌐 Web Version (GitHub Pages)
+## Web Version (GitHub Pages)
 
 **Play online:** https://damihr.github.io/ping_pong_hand_control/
 
@@ -21,7 +21,7 @@ The web version uses MediaPipe for JavaScript and runs entirely in your browser 
 - Press **M** to switch between 1 player and 2 player modes
 - Press **Q** to return to menu
 
-## 💻 Python Desktop Version
+## Python Desktop Version
 
 For running locally with Python.
 
@@ -64,15 +64,6 @@ For running locally with Python.
    - Open `index.html` in your browser
    - Or deploy to GitHub Pages (see below)
 
-## 🚀 Deploying to GitHub Pages
-
-1. **Push the repository to GitHub**
-2. **Go to repository Settings → Pages**
-3. **Select source:** Deploy from a branch
-4. **Select branch:** `main` and folder: `/ (root)`
-5. **Save**
-
-Your game will be live at: `https://damihr.github.io/ping_pong_hand_control/`
 
 ## 📁 Files
 
@@ -92,7 +83,7 @@ Your game will be live at: `https://damihr.github.io/ping_pong_hand_control/`
 - Right hand controls right paddle
 - Perfect for playing with a friend!
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Web Version
 - **Camera not working:** Make sure you allow camera access when prompted
@@ -104,7 +95,7 @@ Your game will be live at: `https://damihr.github.io/ping_pong_hand_control/`
 - **Camera not found:** Check camera permissions and try different camera index
 - **Fullscreen issues:** Press 'Q' to quit, or Alt+F4 on Windows
 
-## 📝 Notes
+## Notes
 
 - The web version uses MediaPipe JavaScript SDK (runs entirely client-side)
 - The Python version uses MediaPipe Python SDK (requires installation)
