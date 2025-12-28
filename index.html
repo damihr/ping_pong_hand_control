@@ -136,10 +136,6 @@
         </div>
     </div>
 
-    <!-- MediaPipe Hands -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js"></script>
-    
     <script>
         // Game state
         let gameMode = 1;
@@ -180,6 +176,13 @@
         
         // Initialize MediaPipe Hands
         function initMediaPipe() {
+            // Check if Hands is available
+            if (typeof Hands === 'undefined') {
+                console.error('MediaPipe Hands not loaded');
+                showError('MediaPipe library failed to load. Please check your internet connection and refresh.');
+                return false;
+            }
+            
             try {
                 hands = new Hands({
                     locateFile: (file) => {
@@ -195,10 +198,12 @@
                 });
                 
                 hands.onResults(onResults);
-                console.log('MediaPipe initialized');
+                console.log('MediaPipe initialized successfully');
+                return true;
             } catch (err) {
                 console.error('MediaPipe init error:', err);
-                showError('Failed to initialize MediaPipe. Please refresh the page.');
+                showError('Failed to initialize MediaPipe: ' + err.message);
+                return false;
             }
         }
         
@@ -238,7 +243,7 @@
                 console.log('Camera started');
                 
                 // Start MediaPipe processing
-                if (hands) {
+                if (hands && typeof Camera !== 'undefined') {
                     camera = new Camera(video, {
                         onFrame: async () => {
                             if (hands) {
@@ -250,6 +255,9 @@
                     });
                     camera.start();
                     console.log('MediaPipe camera started');
+                } else {
+                    console.error('MediaPipe or Camera not available');
+                    showError('MediaPipe not properly initialized. Please refresh.');
                 }
             } catch (err) {
                 console.error('Camera error:', err);
@@ -553,11 +561,34 @@
         // Initialize on page load
         window.addEventListener('load', () => {
             initCanvas();
-            initMediaPipe();
-            // Wait a bit for MediaPipe to initialize
-            setTimeout(() => {
-                startCamera();
-            }, 500);
+            
+            // Load MediaPipe scripts dynamically
+            const handsScript = document.createElement('script');
+            handsScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js';
+            handsScript.onload = () => {
+                console.log('MediaPipe Hands script loaded');
+                
+                const cameraScript = document.createElement('script');
+                cameraScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js';
+                cameraScript.onload = () => {
+                    console.log('MediaPipe Camera script loaded');
+                    
+                    // Wait a moment for classes to be available
+                    setTimeout(() => {
+                        if (initMediaPipe()) {
+                            startCamera();
+                        }
+                    }, 100);
+                };
+                cameraScript.onerror = () => {
+                    showError('Failed to load MediaPipe Camera library. Please refresh.');
+                };
+                document.head.appendChild(cameraScript);
+            };
+            handsScript.onerror = () => {
+                showError('Failed to load MediaPipe Hands library. Please check your internet connection.');
+            };
+            document.head.appendChild(handsScript);
         });
     </script>
 </body>
