@@ -558,37 +558,104 @@
             initCanvas();
         });
         
+        // Load script with fallback
+        function loadScript(src, fallbackSrc, onLoad, onError) {
+            const script = document.createElement('script');
+            script.src = src;
+            script.onload = onLoad;
+            script.onerror = () => {
+                console.log(`Failed to load from ${src}, trying fallback...`);
+                if (fallbackSrc) {
+                    const fallbackScript = document.createElement('script');
+                    fallbackScript.src = fallbackSrc;
+                    fallbackScript.onload = onLoad;
+                    fallbackScript.onerror = onError;
+                    document.head.appendChild(fallbackScript);
+                } else {
+                    onError();
+                }
+            };
+            document.head.appendChild(script);
+        }
+        
         // Initialize on page load
         window.addEventListener('load', () => {
             initCanvas();
             
-            // Load MediaPipe scripts dynamically
-            const handsScript = document.createElement('script');
-            handsScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js';
-            handsScript.onload = () => {
-                console.log('MediaPipe Hands script loaded');
+            statusText.textContent = 'Loading MediaPipe...';
+            
+            // Try multiple CDN sources for Hands
+            const handsSources = [
+                'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js',
+                'https://unpkg.com/@mediapipe/hands@0.4.1675469404/hands.js',
+                'https://cdn.skypack.dev/@mediapipe/hands@0.4.1675469404'
+            ];
+            
+            let handsLoaded = false;
+            let cameraLoaded = false;
+            
+            function tryLoadHands(index) {
+                if (index >= handsSources.length) {
+                    showError('Failed to load MediaPipe Hands from all sources. Please check your internet connection.');
+                    return;
+                }
                 
-                const cameraScript = document.createElement('script');
-                cameraScript.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js';
-                cameraScript.onload = () => {
-                    console.log('MediaPipe Camera script loaded');
-                    
-                    // Wait a moment for classes to be available
-                    setTimeout(() => {
-                        if (initMediaPipe()) {
-                            startCamera();
-                        }
-                    }, 100);
+                const script = document.createElement('script');
+                script.src = handsSources[index];
+                script.onload = () => {
+                    console.log(`MediaPipe Hands loaded from source ${index + 1}`);
+                    handsLoaded = true;
+                    if (cameraLoaded) {
+                        initializeAfterLoad();
+                    }
                 };
-                cameraScript.onerror = () => {
-                    showError('Failed to load MediaPipe Camera library. Please refresh.');
+                script.onerror = () => {
+                    console.log(`Source ${index + 1} failed, trying next...`);
+                    tryLoadHands(index + 1);
                 };
-                document.head.appendChild(cameraScript);
-            };
-            handsScript.onerror = () => {
-                showError('Failed to load MediaPipe Hands library. Please check your internet connection.');
-            };
-            document.head.appendChild(handsScript);
+                document.head.appendChild(script);
+            }
+            
+            // Try multiple CDN sources for Camera
+            const cameraSources = [
+                'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js',
+                'https://unpkg.com/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js'
+            ];
+            
+            function tryLoadCamera(index) {
+                if (index >= cameraSources.length) {
+                    showError('Failed to load MediaPipe Camera from all sources.');
+                    return;
+                }
+                
+                const script = document.createElement('script');
+                script.src = cameraSources[index];
+                script.onload = () => {
+                    console.log(`MediaPipe Camera loaded from source ${index + 1}`);
+                    cameraLoaded = true;
+                    if (handsLoaded) {
+                        initializeAfterLoad();
+                    }
+                };
+                script.onerror = () => {
+                    console.log(`Camera source ${index + 1} failed, trying next...`);
+                    tryLoadCamera(index + 1);
+                };
+                document.head.appendChild(script);
+            }
+            
+            function initializeAfterLoad() {
+                statusText.textContent = 'Initializing MediaPipe...';
+                setTimeout(() => {
+                    if (initMediaPipe()) {
+                        startCamera();
+                    }
+                }, 200);
+            }
+            
+            // Start loading both in parallel
+            tryLoadHands(0);
+            tryLoadCamera(0);
         });
     </script>
 </body>
