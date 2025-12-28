@@ -176,16 +176,20 @@
         
         // Initialize MediaPipe Hands
         function initMediaPipe() {
-            // Check if Hands is available
-            if (typeof Hands === 'undefined') {
+            // Check if Hands is available (try multiple ways)
+            const HandsClass = window.Hands || (typeof Hands !== 'undefined' ? Hands : null);
+            
+            if (!HandsClass) {
                 console.error('MediaPipe Hands not loaded');
-                showError('MediaPipe library failed to load. Please check your internet connection and refresh.');
+                console.log('Available globals:', Object.keys(window).filter(k => k.toLowerCase().includes('hand') || k.toLowerCase().includes('media')));
+                showError('MediaPipe Hands class not found. Check console for details.');
                 return false;
             }
             
             try {
-                hands = new Hands({
+                hands = new HandsClass({
                     locateFile: (file) => {
+                        // Use jsdelivr for model files
                         return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
                     }
                 });
@@ -213,7 +217,8 @@
             
             if (results.multiHandLandmarks) {
                 for (const landmarks of results.multiHandLandmarks) {
-                    const palmX = landmarks[9].x * width;
+                    // Mirror X coordinate because video is mirrored (scaleX(-1))
+                    const palmX = (1 - landmarks[9].x) * width; // Mirror: right becomes left
                     const palmY = landmarks[9].y * height;
                     handPositions.push({ x: palmX, y: palmY, landmarks: landmarks });
                 }
@@ -271,21 +276,24 @@
             if (!gameRunning || handPositions.length === 0) return;
             
             if (gameMode === 1) {
-                // 1 player: use leftmost hand for left paddle
+                // 1 player: use leftmost hand (visually on left side) for left paddle
                 const leftHand = handPositions.find(h => h.x < width / 2) || handPositions[0];
                 if (leftHand) {
                     leftYSmooth = leftYSmooth * (1 - paddleSmoothing1P) + leftHand.y * paddleSmoothing1P;
                 }
             } else {
-                // 2 player mode
+                // 2 player mode: leftmost hand -> left paddle, rightmost hand -> right paddle
                 if (handPositions.length === 1) {
                     const hand = handPositions[0];
                     if (hand.x < width / 2) {
+                        // Left side of screen -> left paddle
                         leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + hand.y * paddleSmoothing2P;
                     } else {
+                        // Right side of screen -> right paddle
                         rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + hand.y * paddleSmoothing2P;
                     }
                 } else if (handPositions.length === 2) {
+                    // Two hands: leftmost -> left paddle, rightmost -> right paddle
                     leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + handPositions[0].y * paddleSmoothing2P;
                     rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + handPositions[1].y * paddleSmoothing2P;
                 }
@@ -435,21 +443,18 @@
                 ctx.fillText('BOT', rightPaddleX - 45, rightTop + paddleHeight / 2 + 5);
             }
             
-            // Draw hand landmarks
+            // Draw hand landmarks (coordinates are already mirrored)
             if (handPositions.length > 0) {
                 ctx.strokeStyle = '#00FF00';
                 ctx.lineWidth = 2;
                 ctx.fillStyle = '#00FF00';
                 
                 for (const hand of handPositions) {
-                    const landmarks = hand.landmarks;
-                    if (landmarks) {
-                        // Draw simple hand indicator
-                        ctx.beginPath();
-                        ctx.arc(hand.x, hand.y, 15, 0, 2 * Math.PI);
-                        ctx.fill();
-                        ctx.stroke();
-                    }
+                    // Draw simple hand indicator at mirrored position
+                    ctx.beginPath();
+                    ctx.arc(hand.x, hand.y, 15, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.stroke();
                 }
             }
             
@@ -584,11 +589,14 @@
             
             statusText.textContent = 'Loading MediaPipe...';
             
-            // Try multiple CDN sources for Hands
+            // Try multiple CDN sources for Hands (using known working versions)
             const handsSources = [
-                'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js',
-                'https://unpkg.com/@mediapipe/hands@0.4.1675469404/hands.js',
-                'https://cdn.skypack.dev/@mediapipe/hands@0.4.1675469404'
+                'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915/hands.js',
+                'https://unpkg.com/@mediapipe/hands@0.4.1646424915/hands.js',
+                'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1646424915',
+                'https://unpkg.com/@mediapipe/hands@0.4.1646424915',
+                'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js',
+                'https://unpkg.com/@mediapipe/hands@0.4/hands.js'
             ];
             
             let handsLoaded = false;
@@ -602,15 +610,24 @@
                 
                 const script = document.createElement('script');
                 script.src = handsSources[index];
+                script.type = 'module';
                 script.onload = () => {
-                    console.log(`MediaPipe Hands loaded from source ${index + 1}`);
-                    handsLoaded = true;
-                    if (cameraLoaded) {
-                        initializeAfterLoad();
-                    }
+                    console.log(`MediaPipe Hands loaded from source ${index + 1}: ${handsSources[index]}`);
+                    // Wait a bit for the class to be available
+                    setTimeout(() => {
+                        if (typeof Hands !== 'undefined' || window.Hands) {
+                            handsLoaded = true;
+                            if (cameraLoaded) {
+                                initializeAfterLoad();
+                            }
+                        } else {
+                            console.log('Hands class not available yet, trying next source...');
+                            tryLoadHands(index + 1);
+                        }
+                    }, 500);
                 };
                 script.onerror = () => {
-                    console.log(`Source ${index + 1} failed, trying next...`);
+                    console.log(`Source ${index + 1} failed: ${handsSources[index]}`);
                     tryLoadHands(index + 1);
                 };
                 document.head.appendChild(script);
@@ -618,8 +635,12 @@
             
             // Try multiple CDN sources for Camera
             const cameraSources = [
-                'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js',
-                'https://unpkg.com/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js'
+                'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js',
+                'https://unpkg.com/@mediapipe/camera_utils@0.3.1640029074/camera_utils.js',
+                'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1640029074',
+                'https://unpkg.com/@mediapipe/camera_utils@0.3.1640029074',
+                'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js',
+                'https://unpkg.com/@mediapipe/camera_utils@0.3/camera_utils.js'
             ];
             
             function tryLoadCamera(index) {
@@ -630,15 +651,23 @@
                 
                 const script = document.createElement('script');
                 script.src = cameraSources[index];
+                script.type = 'module';
                 script.onload = () => {
-                    console.log(`MediaPipe Camera loaded from source ${index + 1}`);
-                    cameraLoaded = true;
-                    if (handsLoaded) {
-                        initializeAfterLoad();
-                    }
+                    console.log(`MediaPipe Camera loaded from source ${index + 1}: ${cameraSources[index]}`);
+                    setTimeout(() => {
+                        if (typeof Camera !== 'undefined' || window.Camera) {
+                            cameraLoaded = true;
+                            if (handsLoaded) {
+                                initializeAfterLoad();
+                            }
+                        } else {
+                            console.log('Camera class not available yet, trying next source...');
+                            tryLoadCamera(index + 1);
+                        }
+                    }, 500);
                 };
                 script.onerror = () => {
-                    console.log(`Camera source ${index + 1} failed, trying next...`);
+                    console.log(`Camera source ${index + 1} failed: ${cameraSources[index]}`);
                     tryLoadCamera(index + 1);
                 };
                 document.head.appendChild(script);
