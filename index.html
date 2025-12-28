@@ -136,6 +136,7 @@
 
     <!-- MediaPipe Hands -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js"></script>
     
     <script>
         // Game state
@@ -190,6 +191,7 @@
             hands.onResults(onResults);
         }
         
+        
         // Start camera
         async function startCamera() {
             try {
@@ -225,17 +227,35 @@
             // Clear canvas but keep video visible
             ctx.clearRect(0, 0, width, height);
             
-            // Draw hand landmarks
-            if (results.multiHandLandmarks) {
-                for (const landmarks of results.multiHandLandmarks) {
-                    drawHandLandmarks(landmarks);
-                    
-                    // Get palm center (landmark 9)
-                    const palmX = landmarks[9].x * width;
-                    const palmY = landmarks[9].y * height;
-                    
-                    // Update paddle positions
-                    updatePaddles(palmX, palmY, results.multiHandLandmarks.length);
+            // Handle multiple hands for 2 player mode
+            if (gameMode === 2 && results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                const handsData = results.multiHandLandmarks.map((landmarks) => ({
+                    x: landmarks[9].x * width,
+                    y: landmarks[9].y * height,
+                    landmarks: landmarks
+                }));
+                handsData.sort((a, b) => a.x - b.x);
+                
+                // Update paddles
+                leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + handsData[0].y * paddleSmoothing2P;
+                rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + handsData[1].y * paddleSmoothing2P;
+                
+                // Draw both hands
+                drawHandLandmarks(handsData[0].landmarks);
+                drawHandLandmarks(handsData[1].landmarks);
+            } else {
+                // Draw hand landmarks
+                if (results.multiHandLandmarks) {
+                    for (const landmarks of results.multiHandLandmarks) {
+                        drawHandLandmarks(landmarks);
+                        
+                        // Get palm center (landmark 9)
+                        const palmX = landmarks[9].x * width;
+                        const palmY = landmarks[9].y * height;
+                        
+                        // Update paddle positions
+                        updatePaddles(palmX, palmY, results.multiHandLandmarks.length);
+                    }
                 }
             }
             
@@ -511,22 +531,6 @@
             gameLoop();
         }
         
-        // Handle multiple hands for 2 player mode
-        function handleMultipleHands(results) {
-            if (gameMode === 2 && results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
-                const hands = results.multiHandLandmarks.map((landmarks, idx) => ({
-                    x: landmarks[9].x * width,
-                    y: landmarks[9].y * height,
-                    idx
-                }));
-                
-                hands.sort((a, b) => a.x - b.x);
-                
-                leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + hands[0].y * paddleSmoothing2P;
-                rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + hands[1].y * paddleSmoothing2P;
-            }
-        }
-        
         // Show error
         function showError(message) {
             const errorDiv = document.getElementById('errorMessage');
@@ -560,8 +564,6 @@
         startCamera();
     </script>
     
-    <!-- MediaPipe Camera -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js"></script>
 </body>
 </html>
 
