@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏓 Air Pong - Hand Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+        }
+
+        #videoElement {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+            opacity: 0.75;
+            z-index: 1;
+        }
+
+        #gameCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+        }
+
+        #menuScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            color: white;
+        }
+
+        #menuScreen h1 {
+            font-size: 4rem;
+            margin-bottom: 3rem;
+            text-shadow: 0 0 20px rgba(255, 255, 255, 0.5);
+        }
+
+        .menu-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            color: white;
+            padding: 1.5rem 3rem;
+            font-size: 1.5rem;
+            margin: 1rem;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        .menu-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+        }
+
+        .menu-button:active {
+            transform: scale(0.98);
+        }
+
+        #statusText {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 1.2rem;
+            z-index: 5;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 5px;
+        }
+
+        #errorMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            z-index: 20;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <video id="videoElement" autoplay playsinline></video>
+        <canvas id="gameCanvas"></canvas>
+        <div id="statusText">Requesting camera access...</div>
+        <div id="errorMessage"></div>
+        
+        <div id="menuScreen">
+            <h1>🏓 AIR PONG</h1>
+            <button class="menu-button" onclick="startGame(1)">1 Player (vs Bot)</button>
+            <button class="menu-button" onclick="startGame(2)">2 Player</button>
+            <p style="margin-top: 2rem; opacity: 0.7;">Move your hands up/down to control paddles</p>
+        </div>
+    </div>
+
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469404/hands.js"></script>
+    
+    <script>
+        // Game state
+        let gameMode = 1; // 1 = 1 player, 2 = 2 player
+        let gameRunning = false;
+        let hands = null;
+        let video = document.getElementById('videoElement');
+        let canvas = document.getElementById('gameCanvas');
+        let ctx = canvas.getContext('2d');
+        let menuScreen = document.getElementById('menuScreen');
+        let statusText = document.getElementById('statusText');
+        
+        // Game variables
+        let width, height;
+        let ballX, ballY, ballDx, ballDy;
+        let ballRadius = 25;
+        let paddleHeight = 180;
+        let paddleWidth = 30;
+        let leftY, rightY;
+        let leftScore = 0, rightScore = 0;
+        let leftYSmooth, rightYSmooth;
+        
+        // Smoothing
+        let paddleSmoothing1P = 0.7;
+        let paddleSmoothing2P = 0.85;
+        
+        // Initialize canvas
+        function initCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+            video.width = width;
+            video.height = height;
+        }
+        
+        // Initialize MediaPipe Hands
+        function initMediaPipe() {
+            hands = new Hands({
+                locateFile: (file) => {
+                    return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+                }
+            });
+            
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.5,
+                minTrackingConfidence: 0.5
+            });
+            
+            hands.onResults(onResults);
+        }
+        
+        // Start camera
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 },
+                        facingMode: 'user'
+                    }
+                });
+                video.srcObject = stream;
+                statusText.textContent = 'Camera ready! Select game mode.';
+                
+                // Process video frames
+                const camera = new Camera(video, {
+                    onFrame: async () => {
+                        await hands.send({ image: video });
+                    },
+                    width: 1280,
+                    height: 720
+                });
+                camera.start();
+            } catch (err) {
+                showError('Camera access denied. Please allow camera access and refresh.');
+                console.error('Camera error:', err);
+            }
+        }
+        
+        // Handle MediaPipe results
+        function onResults(results) {
+            if (!gameRunning) return;
+            
+            // Clear canvas but keep video visible
+            ctx.clearRect(0, 0, width, height);
+            
+            // Draw hand landmarks
+            if (results.multiHandLandmarks) {
+                for (const landmarks of results.multiHandLandmarks) {
+                    drawHandLandmarks(landmarks);
+                    
+                    // Get palm center (landmark 9)
+                    const palmX = landmarks[9].x * width;
+                    const palmY = landmarks[9].y * height;
+                    
+                    // Update paddle positions
+                    updatePaddles(palmX, palmY, results.multiHandLandmarks.length);
+                }
+            }
+            
+            // Update and draw game
+            updateGame();
+            drawGame();
+        }
+        
+        // Draw hand landmarks
+        function drawHandLandmarks(landmarks) {
+            ctx.strokeStyle = '#00FF00';
+            ctx.lineWidth = 2;
+            
+            // Draw connections
+            const connections = [
+                [0, 1, 2, 3, 4],
+                [0, 5, 6, 7, 8],
+                [0, 9, 10, 11, 12],
+                [0, 13, 14, 15, 16],
+                [0, 17, 18, 19, 20],
+                [5, 9, 13, 17]
+            ];
+            
+            for (const connection of connections) {
+                ctx.beginPath();
+                for (let i = 0; i < connection.length - 1; i++) {
+                    const start = landmarks[connection[i]];
+                    const end = landmarks[connection[i + 1]];
+                    if (i === 0) {
+                        ctx.moveTo(start.x * width, start.y * height);
+                    }
+                    ctx.lineTo(end.x * width, end.y * height);
+                }
+                ctx.stroke();
+            }
+            
+            // Draw points
+            ctx.fillStyle = '#00FF00';
+            for (const landmark of landmarks) {
+                ctx.beginPath();
+                ctx.arc(landmark.x * width, landmark.y * height, 3, 0, 2 * Math.PI);
+                ctx.fill();
+            }
+        }
+        
+        // Update paddle positions
+        function updatePaddles(palmX, palmY, numHands) {
+            if (gameMode === 1) {
+                // 1 player: use leftmost hand for left paddle
+                if (palmX < width / 2) {
+                    leftYSmooth = leftYSmooth * (1 - paddleSmoothing1P) + palmY * paddleSmoothing1P;
+                }
+            } else {
+                // 2 player: assign based on x position
+                if (numHands === 1) {
+                    if (palmX < width / 2) {
+                        leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + palmY * paddleSmoothing2P;
+                    } else {
+                        rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + palmY * paddleSmoothing2P;
+                    }
+                } else if (numHands === 2) {
+                    // Will be handled by sorting in onResults
+                }
+            }
+        }
+        
+        // Bot AI
+        function updateBotPaddle() {
+            if (gameMode !== 1) return;
+            
+            const rightPaddleX = width - 50 - paddleWidth;
+            const rightCenter = rightY + paddleHeight / 2;
+            
+            if (ballDx > 0) {
+                const distanceToPaddle = rightPaddleX - ballX;
+                if (distanceToPaddle > 0) {
+                    const timeToReach = distanceToPaddle / Math.abs(ballDx);
+                    let predictedY = ballY + (ballDy * timeToReach);
+                    
+                    // Account for bounces
+                    while (predictedY < 0 || predictedY > height) {
+                        if (predictedY < 0) {
+                            predictedY = -predictedY;
+                        } else {
+                            predictedY = 2 * height - predictedY;
+                        }
+                    }
+                    
+                    const targetY = predictedY;
+                    const diff = targetY - rightCenter;
+                    const moveSpeed = 50;
+                    
+                    if (Math.abs(diff) > 1) {
+                        const sign = diff > 0 ? 1 : -1;
+                        const newCenter = rightCenter + sign * Math.min(Math.abs(diff), moveSpeed);
+                        rightY = Math.max(paddleHeight / 2, Math.min(newCenter - paddleHeight / 2, height - paddleHeight / 2));
+                    }
+                }
+            }
+        }
+        
+        // Update game logic
+        function updateGame() {
+            // Update paddle positions
+            leftY = Math.max(paddleHeight / 2, Math.min(leftYSmooth, height - paddleHeight / 2));
+            if (gameMode === 2) {
+                rightY = Math.max(paddleHeight / 2, Math.min(rightYSmooth, height - paddleHeight / 2));
+            }
+            
+            // Update bot
+            if (gameMode === 1) {
+                updateBotPaddle();
+            }
+            
+            // Move ball
+            ballX += ballDx;
+            ballY += ballDy;
+            
+            // Top/bottom collision
+            if (ballY - ballRadius <= 0) {
+                ballY = ballRadius;
+                ballDy = Math.abs(ballDy);
+            } else if (ballY + ballRadius >= height) {
+                ballY = height - ballRadius;
+                ballDy = -Math.abs(ballDy);
+            }
+            
+            // Paddle collision
+            const leftPaddleX = 50;
+            const rightPaddleX = width - 50 - paddleWidth;
+            const leftTop = leftY - paddleHeight / 2;
+            const rightTop = rightY - paddleHeight / 2;
+            
+            // Left paddle
+            if (ballX - ballRadius <= leftPaddleX + paddleWidth && 
+                ballX + ballRadius >= leftPaddleX &&
+                ballY >= leftTop && ballY <= leftTop + paddleHeight &&
+                ballDx < 0) {
+                const hitPos = (ballY - leftTop) / paddleHeight;
+                ballX = leftPaddleX + paddleWidth + ballRadius + 1;
+                ballDx = Math.abs(ballDx) + 2;
+                ballDy = (hitPos - 0.5) * 10 + (Math.random() * 6 - 3);
+                ballDy = Math.max(-28, Math.min(28, ballDy));
+            }
+            
+            // Right paddle
+            if (ballX + ballRadius >= rightPaddleX &&
+                ballX - ballRadius <= rightPaddleX + paddleWidth &&
+                ballY >= rightTop && ballY <= rightTop + paddleHeight &&
+                ballDx > 0) {
+                const hitPos = (ballY - rightTop) / paddleHeight;
+                ballX = rightPaddleX - ballRadius - 1;
+                ballDx = -(Math.abs(ballDx) + 2);
+                ballDy = (hitPos - 0.5) * 10 + (Math.random() * 6 - 3);
+                ballDy = Math.max(-28, Math.min(28, ballDy));
+            }
+            
+            // Scoring
+            if (ballX < 0) {
+                rightScore++;
+                resetBall();
+            } else if (ballX > width) {
+                leftScore++;
+                resetBall();
+            }
+        }
+        
+        // Reset ball
+        function resetBall() {
+            ballX = width / 2;
+            ballY = height / 2;
+            ballDx = ballDx > 0 ? 28 : -28;
+            ballDy = [-18, -16, 16, 18][Math.floor(Math.random() * 4)];
+            leftYSmooth = height / 2;
+            rightYSmooth = height / 2;
+        }
+        
+        // Draw game
+        function drawGame() {
+            const leftPaddleX = 50;
+            const rightPaddleX = width - 50 - paddleWidth;
+            const leftTop = leftY - paddleHeight / 2;
+            const rightTop = rightY - paddleHeight / 2;
+            
+            // Draw paddles
+            ctx.fillStyle = '#00FFFF';
+            ctx.fillRect(leftPaddleX, leftTop, paddleWidth, paddleHeight);
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(leftPaddleX, leftTop, paddleWidth, paddleHeight);
+            
+            ctx.fillStyle = '#FF00FF';
+            ctx.fillRect(rightPaddleX, rightTop, paddleWidth, paddleHeight);
+            ctx.strokeRect(rightPaddleX, rightTop, paddleWidth, paddleHeight);
+            
+            // Bot label
+            if (gameMode === 1) {
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = 'bold 20px Arial';
+                ctx.fillText('BOT', rightPaddleX - 40, rightTop + paddleHeight / 2 + 10);
+            }
+            
+            // Draw ball with glow
+            ctx.fillStyle = '#00C800';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ballRadius + 3, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.fillStyle = '#00FF00';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ballRadius, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            ctx.fillStyle = '#96FF96';
+            ctx.beginPath();
+            ctx.arc(ballX, ballY, ballRadius - 5, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Draw scores
+            ctx.fillStyle = '#00FFFF';
+            ctx.font = 'bold 80px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(leftScore.toString(), width / 4, height / 4);
+            
+            ctx.fillStyle = '#FF00FF';
+            ctx.fillText(rightScore.toString(), 3 * width / 4, height / 4);
+            
+            // Draw center line
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 1;
+            ctx.setLineDash([30, 20]);
+            ctx.beginPath();
+            ctx.moveTo(width / 2, 0);
+            ctx.lineTo(width / 2, height);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Draw mode text
+            ctx.fillStyle = '#C8C8C8';
+            ctx.font = '20px Arial';
+            ctx.textAlign = 'center';
+            const modeText = gameMode === 1 ? '1 Player (vs Bot)' : '2 Player';
+            ctx.fillText(`Mode: ${modeText} | Press M to change mode`, width / 2, height - 30);
+        }
+        
+        // Start game
+        function startGame(mode) {
+            gameMode = mode;
+            gameRunning = true;
+            menuScreen.style.display = 'none';
+            statusText.textContent = gameMode === 1 ? '1 Player Mode - Move your left hand up/down' : '2 Player Mode - Move both hands';
+            
+            // Initialize game state
+            ballX = width / 2;
+            ballY = height / 2;
+            ballDx = 28;
+            ballDy = 18;
+            leftY = height / 2;
+            rightY = height / 2;
+            leftYSmooth = height / 2;
+            rightYSmooth = height / 2;
+            leftScore = 0;
+            rightScore = 0;
+            
+            // Game loop
+            function gameLoop() {
+                if (gameRunning) {
+                    updateGame();
+                    drawGame();
+                    requestAnimationFrame(gameLoop);
+                }
+            }
+            gameLoop();
+        }
+        
+        // Handle multiple hands for 2 player mode
+        function handleMultipleHands(results) {
+            if (gameMode === 2 && results.multiHandLandmarks && results.multiHandLandmarks.length === 2) {
+                const hands = results.multiHandLandmarks.map((landmarks, idx) => ({
+                    x: landmarks[9].x * width,
+                    y: landmarks[9].y * height,
+                    idx
+                }));
+                
+                hands.sort((a, b) => a.x - b.x);
+                
+                leftYSmooth = leftYSmooth * (1 - paddleSmoothing2P) + hands[0].y * paddleSmoothing2P;
+                rightYSmooth = rightYSmooth * (1 - paddleSmoothing2P) + hands[1].y * paddleSmoothing2P;
+            }
+        }
+        
+        // Show error
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        // Keyboard controls
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'm' || e.key === 'M') {
+                if (gameRunning) {
+                    gameMode = gameMode === 1 ? 2 : 1;
+                    leftScore = 0;
+                    rightScore = 0;
+                    resetBall();
+                }
+            } else if (e.key === 'q' || e.key === 'Q') {
+                gameRunning = false;
+                menuScreen.style.display = 'flex';
+            }
+        });
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            initCanvas();
+        });
+        
+        // Initialize
+        initCanvas();
+        initMediaPipe();
+        startCamera();
+    </script>
+    
+    <!-- MediaPipe Camera -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466869/camera_utils.js"></script>
+</body>
+</html>
+
